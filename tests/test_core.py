@@ -100,7 +100,8 @@ class MarketTests(unittest.TestCase):
         self.assertEqual(request_json.call_count, 1)
         self.assertEqual(request_json.call_args.args[1]["to"], "2024-07-01T00:00:00Z")
 
-    def test_demo_stock_weekend_has_no_trade_and_uses_friday_valuation(self):
+    @patch("market.Market.stock_series", side_effect=OSError("offline"))
+    def test_demo_stock_weekend_has_no_trade_and_uses_friday_valuation(self, _stocks):
         market = Market()
         self.assertIsNone(market.quote("AAPL", "2024-01-06"))
         quote = market.quote("AAPL", "2024-01-06", valuation=True)
