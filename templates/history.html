@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}거래 내역{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <p class="eyebrow">모의 체결 기록</p>
+    <h1>거래 내역</h1>
+    <p>최신 거래부터 체결 가격과 사용한 시세를 확인할 수 있어요.</p>
+  </div>
+  <section class="panel">
+    {% if trades %}
+      <div class="table-wrap"><table>
+        <thead><tr><th>체결 일시</th><th>종목</th><th>구분</th><th>수량</th><th>단가</th><th>체결 금액</th><th>가격 출처와 시점</th></tr></thead>
+        <tbody>
+          {% for trade in trades %}
+            <tr>
+              <td>{{ trade.traded_at | kst }}</td><td><strong>{{ trade.symbol }}</strong></td>
+              <td><span class="{{ 'gain' if trade.side == 'buy' else 'loss' }}">{{ '매수' if trade.side == 'buy' else '매도' }}</span></td>
+              <td>{{ to_quantity(trade.symbol, trade.units) | quantity }}</td>
+              <td>{{ trade.unit_price | money }}</td><td>{{ trade.amount | money }}</td>
+              <td><span class="badge {{ 'demo' if trade.source == demo_source else 'live' }}">{{ trade.source }}</span>
+                <br><small>기준 {{ trade.as_of | kst }}</small>
+                <br><small>{{ '데모 표시' if trade.source == demo_source else '조회' }} {{ trade.fetched_at | kst }}</small>
+                {% if trade.fx_rate %}<br><small>1 USD = {{ trade.fx_rate | money }} ({{ trade.fx_as_of }})</small>{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+    {% else %}
+      <p class="empty">아직 체결된 모의 주문이 없어요.</p>
+      <a class="button primary" href="{{ url_for('market_page') }}">종목 둘러보기</a>
+    {% endif %}
+  </section>
+{% endblock %}

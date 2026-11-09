@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}투자 시작{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <p class="eyebrow">첫 모의투자</p>
+    <h1>어떤 금액으로 시작할까요?</h1>
+    <p>초기 투자금을 선택하면 주식과 코인을 가상으로 거래할 수 있어요.</p>
+  </div>
+  <form class="panel setup-form" method="post">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <fieldset>
+      <legend>투자 시나리오</legend>
+      <div class="scenario-grid">
+        {% for code, (label, amount) in scenarios.items() %}
+          <label class="scenario">
+            <input type="radio" name="scenario" value="{{ code }}" {% if request.form.get('scenario', 'student') == code %}checked{% endif %} required>
+            <span>{{ label }}<strong>{{ amount | money if amount else '직접 입력' }}</strong></span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <label class="field custom-amount" for="amount">자유 설정 금액 (원)
+      <input id="amount" type="number" name="amount" min="1" max="{{ max_cash }}" step="1" inputmode="numeric"
+             placeholder="예: 2000000" value="{{ request.form.get('amount', '') }}">
+      <small>자유 설정을 선택하면 1원부터 10억 원까지 입력할 수 있어요.</small>
+    </label>
+    <button class="button primary" type="submit">모의투자 시작하기</button>
+  </form>
+{% endblock %}
