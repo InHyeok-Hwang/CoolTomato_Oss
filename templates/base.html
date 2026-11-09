@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{% endblock %} | 토마토 트레이드</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-mark" aria-hidden="true">T</span> 토마토 트레이드</a>
+      <nav aria-label="주 메뉴">
+        {% for endpoint, label in [('dashboard', '내 자산'), ('market_page', '종목 탐색'), ('history', '거래 내역')] %}
+          <a href="{{ url_for(endpoint) }}" {% if request.endpoint == endpoint %}aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </nav>
+      <span class="badge simulation">모의투자</span>
+    </div>
+  </header>
+  <main class="shell main-content">
+    {% for category, message in get_flashed_messages(with_categories=true) %}
+      <p class="notice {{ category }}" role="status">{{ message }}</p>
+    {% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="shell footer">멋쟁이 토마토 · OSS 프로젝트 V1 <span>가상 자금 · 수수료 및 세금 0원</span></footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
