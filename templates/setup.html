@@ -8,6 +8,11 @@
   </div>
   <form class="panel setup-form" method="post">
     <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="field" for="start_day">시작 날짜
+      <input id="start_day" type="date" name="start_day" min="{{ first_day }}" max="{{ last_start }}"
+             value="{{ request.form.get('start_day', first_day) }}" required>
+      <small>{{ first_day }}부터 {{ last_start }}까지 선택할 수 있어요. 해당 날짜에 일봉이 있는 종목만 거래할 수 있어요.</small>
+    </label>
     <fieldset>
       <legend>투자 시나리오</legend>
       <div class="scenario-grid">

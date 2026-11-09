@@ -1,8 +1,9 @@
+from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 import re
 
 from db import transaction
-from market import SYMBOLS, now
+from market import FIRST_DAY, LAST_DAY, SYMBOLS
 
 
 SCENARIOS = {
@@ -25,9 +26,14 @@ def account(connection):
     return connection.execute("SELECT * FROM account").fetchone()
 
 
-def setup(connection, scenario, entered_amount):
+def setup(connection, scenario, entered_amount, start_day):
     if scenario not in SCENARIOS:
         raise TradeError("투자 시나리오를 선택해 주세요.")
+    try:
+        if date.fromisoformat(start_day).isoformat() != start_day or not FIRST_DAY <= start_day < LAST_DAY:
+            raise ValueError()
+    except ValueError:
+        raise TradeError("선택할 수 있는 범위 안에서 시작 날짜를 지정해 주세요.") from None
     amount = SCENARIOS[scenario][1]
     if amount is None:
         if not re.fullmatch(r"[0-9]{1,10}", entered_amount):
@@ -39,9 +45,10 @@ def setup(connection, scenario, entered_amount):
         if account(connection) is not None:
             raise TradeError("이미 투자 계좌가 설정되어 있어요.")
         connection.execute(
-            "INSERT INTO account (scenario, initial_cash, cash) VALUES (?, ?, ?)",
-            (scenario, amount, amount),
+            "INSERT INTO account (scenario, initial_cash, cash, start_day, current_day) VALUES (?, ?, ?, ?, ?)",
+            (scenario, amount, amount, start_day, start_day),
         )
+        connection.execute("INSERT INTO checkpoints VALUES (?, ?)", (start_day, amount))
 
 
 def reset(connection, account_id):
@@ -51,6 +58,7 @@ def reset(connection, account_id):
             raise TradeError("계좌가 변경됐어요. 화면을 새로고침해 주세요.")
         connection.execute("DELETE FROM trades")
         connection.execute("DELETE FROM positions")
+        connection.execute("DELETE FROM checkpoints")
         connection.execute("DELETE FROM account")
 
 
@@ -79,7 +87,18 @@ def parse_units(symbol, entered_quantity):
     return int(value * scale(symbol))
 
 
-def execute(connection, quote, side, entered_quantity, account_id, request_id):
+def active_account(connection, account_id, expected_day):
+    current = account(connection)
+    if current is None or str(current["id"]) != account_id:
+        raise TradeError("계좌가 변경됐어요. 화면을 새로고침해 주세요.")
+    if current["finished"]:
+        raise TradeError("이미 종료한 투자예요.")
+    if current["current_day"] != expected_day:
+        raise TradeError("투자 날짜가 변경됐어요. 화면을 새로고침해 주세요.")
+    return current
+
+
+def execute(connection, quote, side, entered_quantity, account_id, request_id, expected_day):
     if side not in ("buy", "sell"):
         raise TradeError("매수 또는 매도를 선택해 주세요.")
     symbol = quote.symbol
@@ -91,9 +110,9 @@ def execute(connection, quote, side, entered_quantity, account_id, request_id):
         raise TradeError("거래 금액이 너무 커요.")
 
     with transaction(connection):
-        current = account(connection)
-        if current is None or str(current['id']) != account_id:
-            raise TradeError("계좌가 변경됐어요. 화면을 새로고침해 주세요.")
+        current = active_account(connection, account_id, expected_day)
+        if quote.as_of != expected_day:
+            raise TradeError("이 날짜에는 해당 가격으로 거래할 수 없어요.")
         if connection.execute("SELECT 1 FROM trades WHERE request_id = ?", (request_id,)).fetchone():
             raise TradeError("이미 처리된 주문이에요.")
         position = connection.execute("SELECT * FROM positions WHERE symbol = ?", (symbol,)).fetchone()
@@ -125,11 +144,10 @@ def execute(connection, quote, side, entered_quantity, account_id, request_id):
         connection.execute("UPDATE account SET cash = ? WHERE id = ?", (new_cash, current["id"]))
         connection.execute(
             """INSERT INTO trades (request_id, symbol, side, units, unit_price, amount,
-                    source, as_of, fetched_at, fx_rate, fx_as_of, traded_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    source, as_of, fetched_at, simulated_day)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (request_id, symbol, side, units, str(quote.price), amount, quote.source,
-             quote.as_of, quote.fetched_at, str(quote.fx_rate) if quote.fx_rate else None,
-             quote.fx_as_of, now()),
+             quote.as_of, quote.fetched_at, expected_day),
         )
 
 

@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import db
-from market import DEMO, STOCK, UPBIT, Market, Quote, now
+from market import DEMO, FIRST_DAY, UPBIT, Market, Quote, now
 import trading
 
 
@@ -18,12 +18,12 @@ class TradingTests(unittest.TestCase):
         self.connection = db.connect(self.path)
         self.addCleanup(self.connection.close)
         self.connection.executescript(db.SCHEMA)
-        trading.setup(self.connection, "student", "")
+        trading.setup(self.connection, "student", "", FIRST_DAY)
         self.account_id = str(trading.account(self.connection)["id"])
 
     def order(self, symbol, price, side, amount, request_id="order"):
-        quote = Quote(symbol, Decimal(price), UPBIT if symbol == "BTC" else DEMO, now(), now())
-        trading.execute(self.connection, quote, side, amount, self.account_id, request_id)
+        quote = Quote(symbol, Decimal(price), UPBIT if symbol == "BTC" else DEMO, FIRST_DAY, now())
+        trading.execute(self.connection, quote, side, amount, self.account_id, request_id, FIRST_DAY)
 
     def test_stock_buy_and_partial_sell_preserve_cost_and_cash(self):
         self.order("AAPL", "100000", "buy", "3", "first")
@@ -61,7 +61,7 @@ class TradingTests(unittest.TestCase):
         self.assertIsNone(self.connection.execute("SELECT * FROM trades").fetchone())
         self.assertIsNone(self.connection.execute("SELECT * FROM positions").fetchone())
         self.assertIsNone(trading.account(self.connection))
-        trading.setup(self.connection, "custom", "2500000")
+        trading.setup(self.connection, "custom", "2500000", FIRST_DAY)
         self.assertEqual(trading.account(self.connection)["cash"], 2_500_000)
         with self.assertRaisesRegex(trading.TradeError, "계좌가 변경"):
             self.order("AAPL", "100000", "buy", "1")
@@ -82,49 +82,33 @@ class TradingTests(unittest.TestCase):
         self.assertIsNone(self.connection.execute("SELECT * FROM positions").fetchone())
 
 
+
 class MarketTests(unittest.TestCase):
     @patch("market.request_json")
-    def test_upbit_current_price_and_history(self, request_json):
-        request_json.side_effect = [
-            [{"market": "KRW-BTC", "trade_timestamp": 1700000000000, "trade_price": 100_000_000}],
-            [{"candle_date_time_kst": "2026-11-09T09:00:00", "trade_price": 101},
-             {"candle_date_time_kst": "2026-11-08T09:00:00", "trade_price": 100}],
+    def test_upbit_historical_quote_chart_and_missing_day(self, request_json):
+        request_json.return_value = [
+            {"market": "KRW-BTC", "candle_date_time_utc": "2024-07-01T00:00:00", "trade_price": 1000},
+            {"market": "KRW-BTC", "candle_date_time_utc": "2024-01-03T00:00:00", "trade_price": 200},
+            {"market": "KRW-BTC", "candle_date_time_utc": "2024-01-01T00:00:00", "trade_price": 100},
         ]
-        market = Market("")
-        quote = market.quote("BTC")
-        self.assertEqual((quote.source, quote.price), (UPBIT, Decimal(100_000_000)))
-        self.assertIs(market.quote("BTC"), quote)
-        self.assertEqual(market.chart("BTC", UPBIT)["values"], [100.0, 101.0])
-        self.assertEqual(request_json.call_count, 2)
+        market = Market()
+        self.assertEqual(market.quote("BTC", "2024-01-01").source, UPBIT)
+        self.assertIsNone(market.quote("BTC", "2024-01-02"))
+        self.assertEqual(market.quote("BTC", "2024-01-02", valuation=True).price, 100)
+        self.assertEqual(market.chart("BTC", "2024-01-02")["values"], [100.0])
+        self.assertEqual(market.chart("BTC", "2024-06-30")["values"], [100.0, 200.0])
+        self.assertEqual(request_json.call_count, 1)
+        self.assertEqual(request_json.call_args.args[1]["to"], "2024-07-01T00:00:00Z")
 
-    @patch("market.request_json")
-    def test_stock_close_converts_to_won_and_chart_uses_usd(self, request_json):
-        request_json.side_effect = [
-            {"Time Series (Daily)": {"2026-11-06": {"4. close": "200.25"}}},
-            {"Time Series FX (Daily)": {"2026-11-09": {"4. close": "1400.25"}}},
-        ]
-        market = Market("test-key")
-        quote = market.quote("AAPL")
-        self.assertEqual((quote.source, quote.price), (STOCK, Decimal("280400.0625")))
-        self.assertEqual((quote.as_of, quote.fx_as_of), ("2026-11-06", "2026-11-09"))
-        self.assertEqual(market.chart("AAPL", STOCK)["currency"], "USD")
-        self.assertEqual(request_json.call_count, 2)
-
-    @patch("market.request_json")
-    def test_stock_missing_fx_switches_to_demo(self, request_json):
-        request_json.side_effect = [
-            {"Time Series (Daily)": {"2026-11-06": {"4. close": "200.25"}}},
-            {"Note": "Rate limit"},
-        ]
-        market = Market("test-key")
-        quote = market.quote("AAPL")
-        chart = market.chart("AAPL", quote.source)
-        self.assertEqual(quote.source, DEMO)
-        self.assertEqual((chart["values"][-1], chart["currency"]), (290_000, "KRW"))
+    def test_demo_stock_weekend_has_no_trade_and_uses_friday_valuation(self):
+        market = Market()
+        self.assertIsNone(market.quote("AAPL", "2024-01-06"))
+        quote = market.quote("AAPL", "2024-01-06", valuation=True)
+        self.assertEqual((quote.source, quote.as_of), (DEMO, "2024-01-05"))
+        self.assertEqual(market.chart("AAPL", "2024-01-06")["labels"][-1], "2024-01-05")
 
     @patch("market.request_json", side_effect=OSError("offline"))
     def test_coin_outage_never_uses_demo_prices(self, _request_json):
-        market = Market("")
-        self.assertIsNone(market.quote("BTC"))
-        self.assertIsNone(market.chart("BTC", UPBIT))
-        self.assertIsNone(market.chart("BTC", DEMO))
+        market = Market()
+        self.assertIsNone(market.quote("BTC", FIRST_DAY))
+        self.assertIsNone(market.chart("BTC", FIRST_DAY))

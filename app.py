@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-import os
 from pathlib import Path
 import re
 import secrets
@@ -8,7 +7,9 @@ import secrets
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
 
 import db
-from market import DEMO, SYMBOLS, UPBIT, Market
+import coach
+from market import DEMO, FIRST_DAY, LAST_DAY, SYMBOLS, Market
+import simulation
 import trading
 
 
@@ -19,8 +20,7 @@ def create_app(config=None):
     app = Flask(__name__)
     app.config.from_mapping(
         SECRET_KEY=secrets.token_hex(32),
-        DATABASE=Path(app.instance_path) / "portfolio.sqlite3",
-        ALPHA_VANTAGE_API_KEY=os.environ.get("ALPHA_VANTAGE_API_KEY", "").strip(),
+        DATABASE=Path(app.instance_path) / "replay.sqlite3",
         TRUSTED_HOSTS=["localhost", "127.0.0.1"],
         MAX_CONTENT_LENGTH=8_192,
     )
@@ -33,7 +33,7 @@ def create_app(config=None):
         connection.executescript(db.SCHEMA)
     finally:
         connection.close()
-    market = Market(app.config["ALPHA_VANTAGE_API_KEY"])
+    market = Market()
 
     def connection_for_request():
         if "db" not in g:
@@ -88,12 +88,15 @@ def create_app(config=None):
             return redirect(url_for("dashboard"))
         if request.method == "POST":
             try:
-                trading.setup(connection, request.form.get("scenario", ""), request.form.get("amount", ""))
+                trading.setup(connection, request.form.get("scenario", ""), request.form.get("amount", ""),
+                              request.form.get("start_day", ""))
             except trading.TradeError as error:
                 flash(str(error), "error")
             else:
                 return redirect(url_for("dashboard"))
-        return render_template("setup.html", scenarios=trading.SCENARIOS, max_cash=trading.MAX_CASH)
+        return render_template("setup.html", scenarios=trading.SCENARIOS, max_cash=trading.MAX_CASH,
+                               first_day=FIRST_DAY, last_start=(datetime.fromisoformat(LAST_DAY) -
+                                                              timedelta(days=1)).date().isoformat())
 
     @app.get("/dashboard")
     def dashboard():
@@ -103,12 +106,25 @@ def create_app(config=None):
             current = trading.account(connection)
             if not current:
                 return redirect(url_for("setup_page"))
-            positions = connection.execute("SELECT * FROM positions ORDER BY symbol").fetchall()
-        quotes = {position["symbol"]: market.quote(position["symbol"]) for position in positions}
-        rows, total, profit, rate = trading.portfolio(current, positions, quotes)
+            rows, total, profit, rate = simulation.portfolio(connection, current, market, current["current_day"])
+            trades = connection.execute("SELECT side, symbol, simulated_day FROM trades").fetchall()
+            checkpoints = connection.execute("SELECT day, total FROM checkpoints ORDER BY day").fetchall()
         return render_template("dashboard.html", account=current, positions=rows, total=total,
-                               profit=profit, rate=rate, has_demo=any(q and q.source == DEMO for q in quotes.values()),
+                               profit=profit, rate=rate, last_day=LAST_DAY, steps=simulation.STEPS,
+                               has_demo=any(row["quote"] and row["quote"].source == DEMO for row in rows),
+                               feedback=coach.analyze(current["cash"], rows, total, rate, trades, checkpoints),
+                               checkpoints=checkpoints,
                                scenario=trading.SCENARIOS[current["scenario"]][0])
+
+    @app.post("/simulation")
+    def update_simulation():
+        form = request.form
+        try:
+            simulation.update(connection_for_request(), market, form.get("account_id", ""),
+                              form.get("day", ""), form.get("action", ""))
+        except trading.TradeError as error:
+            flash(str(error), "error")
+        return redirect(url_for("dashboard"))
 
     @app.get("/market")
     def market_page():
@@ -121,17 +137,19 @@ def create_app(config=None):
             abort(404)
         position = connection.execute("SELECT units FROM positions WHERE symbol = ?", (symbol,)).fetchone()
         held = trading.quantity(symbol, position["units"]) if position else Decimal(0)
-        quote = market.quote(symbol)
+        quote = market.quote(symbol, current["current_day"])
         return render_template("market.html", account=current, symbol=symbol, instrument=SYMBOLS[symbol],
-                               quote=quote, held=held, request_id=secrets.token_hex(16),
-                               chart_source=quote.source if quote else UPBIT)
+                               quote=quote, held=held, request_id=secrets.token_hex(16))
 
     @app.get("/api/chart/<symbol>")
     def chart_data(symbol):
-        if symbol not in SYMBOLS or not trading.account(connection_for_request()):
+        current = trading.account(connection_for_request())
+        if symbol not in SYMBOLS or not current:
             abort(404)
-        chart = market.chart(symbol, request.args.get("source", ""))
-        return jsonify(chart) if chart else (jsonify(error="가격 그래프를 조회할 수 없어요."), 503)
+        chart = market.chart(symbol, current["current_day"])
+        response = jsonify(chart) if chart else jsonify(error="가격 그래프를 조회할 수 없어요.")
+        response.headers["Cache-Control"] = "no-store"
+        return response, 200 if chart else 503
 
     @app.post("/trade/<symbol>")
     def trade(symbol):
@@ -142,7 +160,10 @@ def create_app(config=None):
         try:
             if not re.fullmatch(r"[0-9a-f]{32}", request_id):
                 raise trading.TradeError("주문 화면을 새로고침해 주세요.")
-            quote = market.quote(symbol)
+            connection = connection_for_request()
+            expected_day = form.get("day", "")
+            current = trading.active_account(connection, form.get("account_id", ""), expected_day)
+            quote = market.quote(symbol, current["current_day"])
             if quote is None:
                 raise trading.TradeError("시세를 확인할 수 없어 거래를 잠시 중단했어요.")
             try:
@@ -150,11 +171,10 @@ def create_app(config=None):
             except InvalidOperation:
                 shown_price = None
             if (shown_price is None or not shown_price.is_finite() or quote.price != shown_price or
-                    quote.source != form.get("source") or
-                    str(quote.fx_rate or "") != form.get("fx_rate", "")):
+                    quote.source != form.get("source")):
                 raise trading.TradeError("가격이나 출처가 바뀌었어요. 새 조건을 확인하고 다시 주문해 주세요.")
-            trading.execute(connection_for_request(), quote, form.get("side", ""), form.get("quantity", ""),
-                            form.get("account_id", ""), request_id)
+            trading.execute(connection, quote, form.get("side", ""), form.get("quantity", ""),
+                            form.get("account_id", ""), request_id, expected_day)
         except trading.TradeError as error:
             flash(str(error), "error")
         else:

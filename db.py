@@ -7,7 +7,10 @@ CREATE TABLE IF NOT EXISTS account (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     scenario TEXT NOT NULL,
     initial_cash INTEGER NOT NULL CHECK (initial_cash > 0),
-    cash INTEGER NOT NULL CHECK (cash >= 0)
+    cash INTEGER NOT NULL CHECK (cash >= 0),
+    start_day TEXT NOT NULL,
+    current_day TEXT NOT NULL,
+    finished INTEGER NOT NULL DEFAULT 0 CHECK (finished IN (0, 1))
 );
 CREATE TABLE IF NOT EXISTS positions (
     symbol TEXT PRIMARY KEY,
@@ -25,9 +28,11 @@ CREATE TABLE IF NOT EXISTS trades (
     source TEXT NOT NULL,
     as_of TEXT NOT NULL,
     fetched_at TEXT NOT NULL,
-    fx_rate TEXT,
-    fx_as_of TEXT,
-    traded_at TEXT NOT NULL
+    simulated_day TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS checkpoints (
+    day TEXT PRIMARY KEY,
+    total INTEGER NOT NULL
 );
 """
 
