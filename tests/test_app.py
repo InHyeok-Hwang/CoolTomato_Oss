@@ -22,6 +22,9 @@ class HiddenInputs(HTMLParser):
 
 class AppTests(unittest.TestCase):
     def setUp(self):
+        offline = patch("market.Market.stock_series", side_effect=OSError("offline"))
+        offline.start()
+        self.addCleanup(offline.stop)
         temp = TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.config = {"TESTING": True, "DATABASE": Path(temp.name) / "app.sqlite3"}
@@ -120,3 +123,32 @@ class AppTests(unittest.TestCase):
         self.client.post("/simulation", data={**self.form("/dashboard"), "action": "30"})
         self.assertEqual(self.form("/dashboard")["day"], "2024-06-30")
         self.assertNotIn("모의 매수", self.client.get("/market?symbol=AAPL").get_data(as_text=True))
+
+    def test_reported_sunday_then_monday_demo_trade(self):
+        self.client.post("/setup", data={**self.form("/setup"), "scenario": "student",
+                                         "start_day": "2024-06-16"})
+        page = self.client.get("/market?symbol=AAPL").get_data(as_text=True)
+        for text in ("데모 데이터", "주말·휴장일", "내 자산에서 날짜 진행하기"):
+            self.assertIn(text, page)
+        self.assertNotIn('action="/trade/AAPL"', page)
+        self.client.post("/simulation", data={**self.form("/dashboard"), "action": "1"})
+        order = self.form("/market?symbol=AAPL")
+        response = self.client.post("/trade/AAPL", data={**order, "side": "buy", "quantity": "1"},
+                                    follow_redirects=True)
+        self.assertIn("모의 매수가 체결", response.get_data(as_text=True))
+
+    def test_real_stock_buy_sell_and_history(self):
+        from decimal import Decimal
+        from market import STOCK
+        with patch("market.Market.stock_series", return_value={"2024-06-17": Decimal("250000")}):
+            self.client.post("/setup", data={**self.form("/setup"), "scenario": "student",
+                                             "start_day": "2024-06-17"})
+            for side, message in (("buy", "모의 매수가 체결"), ("sell", "모의 매도가 체결")):
+                order = self.form("/market?symbol=AAPL")
+                self.assertEqual(order["source"], STOCK)
+                result = self.client.post("/trade/AAPL", data={**order, "side": side, "quantity": "1"},
+                                          follow_redirects=True)
+                self.assertIn(message, result.get_data(as_text=True))
+            self.assertIn("1,000,000원", result.get_data(as_text=True))
+            self.assertIn(STOCK, self.client.get("/history").get_data(as_text=True))
+            self.assertEqual(self.client.get("/api/chart/AAPL").get_json()["source"], STOCK)

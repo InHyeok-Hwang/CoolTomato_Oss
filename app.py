@@ -138,8 +138,9 @@ def create_app(config=None):
         position = connection.execute("SELECT units FROM positions WHERE symbol = ?", (symbol,)).fetchone()
         held = trading.quantity(symbol, position["units"]) if position else Decimal(0)
         quote = market.quote(symbol, current["current_day"])
+        source = market.series(symbol)[1]
         return render_template("market.html", account=current, symbol=symbol, instrument=SYMBOLS[symbol],
-                               quote=quote, held=held, request_id=secrets.token_hex(16))
+                               quote=quote, source=source, held=held, request_id=secrets.token_hex(16))
 
     @app.get("/api/chart/<symbol>")
     def chart_data(symbol):
