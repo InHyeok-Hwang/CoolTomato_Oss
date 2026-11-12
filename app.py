@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 import re
 import secrets
+import os
 
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
 
@@ -19,25 +20,49 @@ KST = timezone(timedelta(hours=9))
 def create_app(config=None):
     app = Flask(__name__)
     app.config.from_mapping(
-        SECRET_KEY=secrets.token_hex(32),
+        SECRET_KEY=os.environ.get("SECRET_KEY") or secrets.token_hex(32),
         DATABASE=Path(app.instance_path) / "replay.sqlite3",
-        TRUSTED_HOSTS=["localhost", "127.0.0.1"],
+        TRUSTED_HOSTS=["localhost", "127.0.0.1"] + [host for host in
+                       [os.environ.get("RENDER_EXTERNAL_HOSTNAME", "")] if host],
         MAX_CONTENT_LENGTH=8_192,
+        TEAM_MODE=os.environ.get("TEAM_MODE") == "1",
+        VISITOR_DATABASE_DIR=os.environ.get("VISITOR_DATABASE_DIR", str(Path(app.instance_path) / "visitors")),
+        EPHEMERAL_STORAGE=os.environ.get("EPHEMERAL_STORAGE") == "1",
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=os.environ.get("RENDER") == "true",
+        PERMANENT_SESSION_LIFETIME=timedelta(days=30),
     )
     if config:
         app.config.update(config)
     database = Path(app.config["DATABASE"])
-    database.parent.mkdir(parents=True, exist_ok=True)
-    connection = db.connect(database)
-    try:
-        connection.executescript(db.SCHEMA)
-    finally:
-        connection.close()
+    visitor_directory = Path(app.config["VISITOR_DATABASE_DIR"])
+    if app.config["TEAM_MODE"]:
+        if not (os.environ.get("SECRET_KEY") or (config or {}).get("SECRET_KEY")):
+            raise ValueError("TEAM_MODE requires a persistent SECRET_KEY")
+        visitor_directory.mkdir(parents=True, exist_ok=True)
+    else:
+        database.parent.mkdir(parents=True, exist_ok=True)
+        connection = db.connect(database)
+        try:
+            connection.executescript(db.SCHEMA)
+        finally:
+            connection.close()
     market = Market()
 
     def connection_for_request():
         if "db" not in g:
-            g.db = db.connect(database)
+            path = database
+            if app.config["TEAM_MODE"]:
+                visitor = session.get("visitor_id")
+                if not isinstance(visitor, str) or not re.fullmatch(r"[0-9a-f]{64}", visitor):
+                    visitor = secrets.token_hex(32)
+                    session["visitor_id"] = visitor
+                    session.permanent = True
+                path = visitor_directory / f"{visitor}.sqlite3"
+            g.db = db.connect(path)
+            if app.config["TEAM_MODE"]:
+                g.db.executescript(db.SCHEMA)
         return g.db
 
     @app.teardown_appcontext
@@ -45,6 +70,18 @@ def create_app(config=None):
         connection = g.pop("db", None)
         if connection is not None:
             connection.close()
+
+    @app.after_request
+    def private_responses(response):
+        if request.endpoint != "static":
+            response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        return response
+
+    @app.get("/healthz")
+    def health():
+        return jsonify(status="ok")
 
     @app.before_request
     def validate_form():

@@ -4,6 +4,14 @@
 
 과거 시세로 매수·매도를 연습하는 모의투자 웹사이트입니다. Flask와 SQLite를 사용하며 한 PC에서 모의 계좌 하나를 운영합니다. 거래 수수료와 세금은 0원입니다.
 
+## 웹사이트 바로 접속
+
+**[🍅 토마토 모의투자 시작하기](https://cooltomato-oss-demo.onrender.com)**
+
+설치 없이 위 링크로 접속할 수 있습니다. 계좌는 브라우저별로 분리됩니다.
+
+> 무료 시연 서버라 첫 접속 시 로딩 화면이 잠시 나타날 수 있습니다. 서버 재시작 시 거래 기록이 초기화될 수 있습니다.
+
 ## Windows에서 실행하기
 
 1. Python 3.11 이상을 설치합니다. VS Code에서 프로젝트 폴더를 열고 **터미널 → 새 터미널**을 누릅니다.
@@ -17,6 +25,19 @@
 
 3. [http://127.0.0.1:5000](http://127.0.0.1:5000)을 열면 투자금과 시작 날짜 선택 화면이 나옵니다. 서버를 종료하려면 터미널에서 `Ctrl+C`를 누릅니다.
 4. `instance/replay.sqlite3`에 날짜, 계좌, 거래, 평가 기록이 저장됩니다. 이전 버전의 `instance/portfolio.sqlite3`는 별도로 보존됩니다.
+
+## 팀원과 링크로 공유하기
+
+`deploy/team-web-access` 브랜치는 Render 무료 웹 서비스에 배포할 수 있습니다. GitHub 파일 미리보기나 `127.0.0.1` 대신 **배포 성공 후 Render가 발급한 HTTPS 주소**를 팀원에게 공유합니다. `main` 병합은 필요하지 않습니다.
+
+- 저장소의 `render.yaml`로 배포하거나, Python 웹 서비스에서 빌드 명령 `pip install -r requirements.txt`, 시작 명령 `python serve.py`를 지정합니다. 요금제는 `free`, 배포 브랜치는 `deploy/team-web-access`입니다. 자동 배포는 꺼둡니다.
+- 환경 변수: `HOST=0.0.0.0`, `TEAM_MODE=1`, `EPHEMERAL_STORAGE=1`, 임의의 강력한 `SECRET_KEY`를 설정합니다. 키는 Git에 저장하지 않으며 재배포 시 유지합니다. Blueprint는 `generateValue`로 키를 생성합니다. Render의 `PORT`, `RENDER_EXTERNAL_HOSTNAME`을 자동 사용합니다.
+- 계좌는 로그인 없이 **브라우저 쿠키별로 분리**됩니다. 다른 기기·시크릿 창·쿠키 삭제 후에는 새 계좌입니다. 같은 브라우저 프로필의 탭은 계좌를 공유합니다. 쿠키는 마지막 접속 후 30일 동안 유효합니다. 다른 팀원의 초기화로 자신의 기록이 삭제되지 않습니다.
+- 기존 로컬 `instance/replay.sqlite3`는 팀 모드에서 열거나 수정하지 않습니다. 새 계좌는 `instance/visitors/`에 별도로 저장됩니다. 로컬 실행 `python app.py`는 환경 변수를 설정하지 않으면 기존 단일 계좌 방식 그대로입니다.
+- **무료 시연용 저장 한계:** Render 무료 서버의 로컬 파일은 영구 저장되지 않습니다. 재시작·재배포·유휴 종료 후 거래 기록이 사라질 수 있고, 첫 접속이 늦을 수 있습니다. 장기 기록 보존이 필요하면 영구 저장소를 연결해야 합니다. 유료 디스크 사용 시 `VISITOR_DATABASE_DIR`를 디스크 경로로 설정하고 `EPHEMERAL_STORAGE=0`으로 변경합니다. 무료 설정에는 유료 자원이 없습니다.
+- 서버 상태 확인: `/healthz`. 정상 응답은 `{"status":"ok"}`이며 계좌를 생성하지 않습니다.
+
+근거: [Render Flask 배포](https://render.com/docs/deploy-flask), [무료 요금제 제한](https://render.com/docs/free).
 
 ## 시연 순서
 

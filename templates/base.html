@@ -19,6 +19,10 @@
     </div>
   </header>
   <main class="shell main-content">
+    {% if config.TEAM_MODE %}
+      <p class="notice">팀 공유용 · 계좌는 브라우저별로 분리돼요. 같은 브라우저에서는 계좌를 공유하며, 다른 기기·시크릿 창에서는 새로 시작해요. 쿠키를 삭제하거나 30일간 접속하지 않으면 기존 계좌에 다시 접근할 수 없어요.</p>
+      {% if config.EPHEMERAL_STORAGE %}<p class="notice">무료 시연 서버 · 서버 재시작이나 재배포 시 거래 기록이 초기화될 수 있어요.</p>{% endif %}
+    {% endif %}
     {% for category, message in get_flashed_messages(with_categories=true) %}
       <p class="notice {{ category }}" role="status">{{ message }}</p>
     {% endfor %}
