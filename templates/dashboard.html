@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}내 자산{% endblock %}
+{% block content %}
+  <div class="page-heading heading-row">
+    <div>
+      <p class="eyebrow">{{ scenario }} 시나리오</p>
+      <h1>내 자산</h1>
+      <p>초기 투자금 {{ account.initial_cash | money }} · 시작 {{ account.start_day }}</p>
+    </div>
+    <a class="button primary" href="{{ url_for('market_page') }}">종목 둘러보기</a>
+  </div>
+  <section class="panel">
+    <h2>투자 날짜 {{ account.current_day }}</h2>
+    {% if account.finished %}
+      <p>투자를 종료했어요. 아래에서 최종 결과를 확인할 수 있어요.</p>
+    {% else %}
+      <p>종료 한도 {{ last_day }} · 가격이 없는 날은 그 종목의 거래가 쉬어요.</p>
+      <form class="order-buttons" method="post" action="{{ url_for('update_simulation') }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="account_id" value="{{ account.id }}">
+        <input type="hidden" name="day" value="{{ account.current_day }}">
+        {% for step in steps %}
+          <button class="button" name="action" value="{{ step }}" {% if account.current_day == last_day %}disabled{% endif %}>+{{ step }}일</button>
+        {% endfor %}
+        <button class="button danger" name="action" value="finish">투자 종료</button>
+      </form>
+    {% endif %}
+  </section>
+  <section class="stats" aria-label="자산 요약">
+    <div class="stat featured"><span>총자산</span><strong>{{ total | money }}</strong></div>
+    <div class="stat"><span>보유 현금</span><strong>{{ account.cash | money }}</strong></div>
+    <div class="stat"><span>보유분 평가손익</span><strong class="{% if profit is not none %}{{ 'gain' if profit > 0 else 'loss' if profit < 0 }}{% endif %}">{{ profit | money }}</strong></div>
+    <div class="stat"><span>전체 수익률</span><strong class="{% if rate is not none %}{{ 'gain' if rate > 0 else 'loss' if rate < 0 }}{% endif %}">{{ '%+.2f%%' | format(rate) if rate is not none else '—' }}</strong></div>
+  </section>
+  {% if total is none %}<p class="notice">시세를 확인할 수 없는 보유 종목이 있어 총자산과 수익률 표시를 잠시 보류했어요.</p>{% endif %}
+  {% if has_demo %}<p class="notice">보유 주식 일부가 데모 가격으로 평가되고 있어요.</p>{% endif %}
+  <section class="panel">
+    <h2>{{ '종합 결과 · 교육용 투자 코치' if account.finished else '교육용 투자 코치' }}</h2>
+    <p>거래 기록과 자산을 Python 규칙으로 분석해요. 실제 금융 전문가의 자문이 아니에요.</p>
+    <ul>{% for message in feedback %}<li>{{ message }}</li>{% endfor %}</ul>
+    <details>
+      <summary>계산 기준과 날짜별 평가 기록</summary>
+      <p>현금 및 종목 비중은 총자산 대비로 계산해요. 현금 10% 미만은 낮음, 한 종목 50% 이상은 집중으로 표시해요.
+         총자산은 현금과 보유 수량 × 평가 가격의 합이에요. 당일 시세가 없으면 직전 종가로 평가해요.
+         수익률은 초기 투자금 대비 증감률이고, 낙폭은 기록한 시점의 이전 최고점 대비 하락률이에요.</p>
+      <ul>{% for item in checkpoints %}<li>{{ item.day }} · {{ item.total | money }}</li>{% endfor %}</ul>
+    </details>
+  </section>
+  <section class="panel">
+    <h2>보유 종목</h2>
+    {% if positions %}
+      <div class="table-wrap"><table>
+        <thead><tr><th>종목</th><th>보유 수량</th><th>매입원가</th><th>평가액</th><th>평가손익</th><th>시세 출처</th></tr></thead>
+        <tbody>
+          {% for position in positions %}
+            <tr>
+              <td><a href="{{ url_for('market_page', symbol=position.symbol) }}"><strong>{{ position.symbol }}</strong><br><small>{{ symbols[position.symbol].name }}</small></a></td>
+              <td>{{ position.quantity | quantity }}</td><td>{{ position.cost | money }}</td>
+              <td>{{ position.value | money }}</td><td>{{ position.profit | money }}</td>
+              <td>{% if position.quote %}<span class="badge {{ 'demo' if position.quote.source == demo_source else 'live' }}">{{ position.quote.source }}</span>
+                <br><small>기준 {{ position.quote.as_of | kst }}</small>
+                <br><small>{{ '데모 표시' if position.quote.source == demo_source else '조회' }} {{ position.quote.fetched_at | kst }}</small>{% else %}조회 불가{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+    {% else %}
+      <p class="empty">아직 보유한 종목이 없어요. 종목 탐색에서 첫 거래를 시작해 보세요.</p>
+    {% endif %}
+  </section>
+  <details class="panel reset-panel">
+    <summary>투자 초기화</summary>
+    <form method="post" action="{{ url_for('reset_page') }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="account_id" value="{{ account.id }}">
+      <p>초기화하면 현금, 보유 종목, 거래 내역이 삭제되고 시나리오 선택으로 돌아가요.</p>
+      <label><input type="checkbox" name="confirm" value="yes" required> 삭제될 내용을 확인했어요.</label>
+      <button class="button danger" type="submit">초기화하기</button>
+    </form>
+  </details>
+{% endblock %}
