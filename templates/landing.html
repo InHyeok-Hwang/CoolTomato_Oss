@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}과거로 돌아가 투자해 보세요{% endblock %}
+{% block body_class %}landing{% endblock %}
+{% block content %}
+<section class="landing-hero" aria-labelledby="hero-title">
+  <p class="landing-kicker"><span aria-hidden="true"></span> 모의투자 시뮬레이터</p>
+  <h1 id="hero-title">과거로 돌아가<br><em>투자해 보세요.</em></h1>
+  <p class="landing-description">과거 주식·코인 시세로 가상 투자를 하고,<br class="desktop-break"> 시간이 흐른 뒤 나의 선택을 돌아보세요.</p>
+  <a class="landing-cta" href="{{ url_for('setup_page') }}">투자 시작하기 <span aria-hidden="true">↗</span></a>
+  <p class="landing-hint">가상 자금으로 부담 없이 · 기존 계좌는 이어서 시작</p>
+  <div class="landing-timeline" aria-hidden="true"><span>2024.01</span><i></i><span>나의 선택</span><i></i><span>2024.06</span></div>
+</section>
+<section class="landing-features" aria-label="이렇게 연습해요">
+  <article><span class="feature-number">01 / START</span><h2>가상 투자금</h2><p>나에게 맞는 금액과<br>시작 날짜를 선택해요.</p></article>
+  <article><span class="feature-number">02 / REPLAY</span><h2>과거 시세</h2><p>주식과 코인을 거래하고<br>하루씩 시간을 움직여요.</p></article>
+  <article><span class="feature-number">03 / REFLECT</span><h2>투자 코치</h2><p>수익률과 투자 습관을<br>규칙 기반 피드백으로 돌아봐요.</p></article>
+</section>
+<p class="landing-disclosure">주식은 실제 과거 주가·환율을 우선 사용해요. 조회에 실패하면 ‘데모 데이터’로 표시해요.</p>
+{% endblock %}

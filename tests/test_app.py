@@ -38,7 +38,9 @@ class AppTests(unittest.TestCase):
 
     def test_four_pages_trade_chart_persistence_and_reset(self):
         setup = self.client.get("/", follow_redirects=True).get_data(as_text=True)
-        self.assertIn("어떤 금액으로 시작할까요?", setup)
+        self.assertIn('href="/setup"', setup)
+        self.assertNotIn('name="start_day"', setup)
+        self.assertIn("어떤 금액으로 시작할까요?", self.client.get("/setup").get_data(as_text=True))
         self.assertIn("1,000,000원", self.start().get_data(as_text=True))
         order = self.form("/market?symbol=AAPL")
         self.assertEqual(order["source"], DEMO)

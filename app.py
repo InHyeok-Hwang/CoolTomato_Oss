@@ -116,7 +116,7 @@ def create_app(config=None):
 
     @app.get("/")
     def index():
-        return redirect(url_for("dashboard"))
+        return render_template("landing.html")
 
     @app.route("/setup", methods=["GET", "POST"])
     def setup_page():
